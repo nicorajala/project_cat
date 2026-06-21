@@ -5,6 +5,9 @@ import time
 import random
 import soundfile as sf
 
+from mutagen.wave import WAVE
+from mutagen.id3 import ID3, TIT2, TPE1, TALB
+
 from pedalboard import Pedalboard, Reverb, Delay, Chorus, LowpassFilter, HighpassFilter, Resample
 import pedalboard
 
@@ -41,7 +44,7 @@ def addToRecording(processed_audio):
     with recording_lock:
         recording_buffer.append(processed_audio.copy())
 
-def saveRecording(filename="output.wav", sample_rate=44100):
+def saveRecording(filename="output.wav", track_number=1, sample_rate=44100):
     with recording_lock:
         if not recording_buffer:
             print("Nothing to save")
@@ -50,6 +53,15 @@ def saveRecording(filename="output.wav", sample_rate=44100):
         sf.write(filename, full_audio, sample_rate)
         print(f"Saved to {filename}")
         recording_buffer.clear()
+    
+    try:
+        audio = WAVE(filename)
+        audio.add_tags()
+        audio.tags.add(TIT2(encoding=3, text=f"Track {track_number}"))
+        audio.tags.add(TPE1(encoding=3, text=f"Fart"))
+        audio.tags.add(TALB(encoding=3, text=f"Fart Cat's Dungeon Synth"))
+    except Exception as e:
+        print(f"Metadata error: {e}")
 
 def playNote(frequency, duration=0.5, pan=0.0, volume=1.0, sample_rate=44100, is_lead=False):
     lock = lead_lock if is_lead else audio_lock
