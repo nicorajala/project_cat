@@ -3,3 +3,5 @@ sounddevice
 pedalboard
 soundfile
 mutagen
+pyttsx3
+ultralytics
