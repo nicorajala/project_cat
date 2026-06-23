@@ -21,7 +21,7 @@ PHASES = [
 ]
 TRANSITION_DURATION = 8
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture("http://192.168.1.59:5000/video")
 cap.set(3, 320)
 cap.set(4, 240)
 
@@ -32,14 +32,14 @@ def processImage(img):
     return img
 
 def getWhiteMask(img):
-    lowerBound = np.array([100, 150, 50])
-    upperBound = np.array([130, 255, 255])
+    lowerBound = np.array([0, 0, 180])
+    upperBound = np.array([179, 40, 255])
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     return processImage(cv2.inRange(hsv, lowerBound, upperBound))
 
 def getOrangeMask(img):
-    lowerBound = np.array([0, 0, 0])
-    upperBound = np.array([179, 255, 50])
+    lowerBound = np.array([8, 100, 80])
+    upperBound = np.array([20, 255, 200])
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     return processImage(cv2.inRange(hsv, lowerBound, upperBound))
 
@@ -85,15 +85,16 @@ def main():
         white_mask = getWhiteMask(img)
         orange_mask = getOrangeMask(img)
 
-        img[white_mask > 0] = [255, 100, 0]
-        img[orange_mask > 0] = [0, 100, 255]
+        colored_mask = np.zeros_like(img)
+        colored_mask[white_mask > 0] = [255, 255, 255]
+        colored_mask[orange_mask > 0] = [0, 165, 255] 
 
         elapsed = time.time() - song_start
         now = time.time()
         phase, params = getPhaseAndParams(elapsed)
 
-        cv2.putText(img, phase.upper(), (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
-        cv2.imshow('Dis shit', img)
+        cv2.putText(colored_mask, phase.upper(), (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+        cv2.imshow('Dis shit (real)', colored_mask)
         if cv2.waitKey(1) == ord('q'):
             break
             
@@ -136,26 +137,26 @@ def main():
         elif phase == "intro" or phase == "outro":
             if white_blob:
                 cx, cy, area = white_blob
-                note = scale[int(cx / 320 * len(scale))]
+                note = scale[min(int(cx / 320 * len(scale)), len(scale) - 1)]
                 volume = min(area / 5000, 1.0) * params["volume_mult"]
                 music.playHeldNoteAsync(note, duration=3.0, pan=-0.8, volume=volume)
                 played = True
             if orange_blob:
                 cx, cy, area = orange_blob
-                note = scale[int(cx / 320 * len(scale))]
+                note = scale[min(int(cx / 320 * len(scale)), len(scale) - 1)]
                 volume = min(area / 5000, 1.0) * params["volume_mult"]
                 music.playHeldNoteAsync(note, duration=3.0, pan=0.8, volume=volume)
                 played = True
         else:
             if white_blob:
                 cx, cy, area = white_blob
-                note = scale[int(cx / 320 * len(scale))]
+                note = scale[min(int(cx / 320 * len(scale)), len(scale) - 1)]
                 volume = min(area / 5000, 1.0) * params["volume_mult"]
                 music.playHeldNoteAsync(note, duration, pan=-0.8, volume=volume)
                 played = True
             if orange_blob:
                 cx, cy, area = orange_blob
-                note = scale[int(cx / 320 * len(scale))]
+                note = scale[min(int(cx / 320 * len(scale)), len(scale) - 1)]
                 volume = min(area / 5000, 1.0) * params["volume_mult"]
                 music.playNoteAsync(note, duration, pan=0.8, volume=volume)
                 played = True

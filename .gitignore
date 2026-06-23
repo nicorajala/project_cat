@@ -3,3 +3,5 @@ __pycache__
 yolo/
 
 *.wav
+
+pat.txt

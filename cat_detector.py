@@ -1,8 +1,9 @@
+import sys
+import subprocess
 import argparse
 import cv2
 import pyttsx3
-import threading
-import time
+
 from ultralytics import YOLO
 
 cap = cv2.VideoCapture("http://192.168.1.59:5000/video")
@@ -11,8 +12,7 @@ cap.set(4, 480)                     # y res
 
 model = YOLO("yolo/yolov8n.pt")
 
-last_spoken = 0
-COOLDOWN = 4
+started = False
 
 def speak(text):
     engine = pyttsx3.init()
@@ -20,6 +20,8 @@ def speak(text):
     engine.runAndWait()
 
 def main():
+    global started
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-gui", action="store_true")
     args = parser.parse_args()
@@ -39,10 +41,10 @@ def main():
             cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(img, label, (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-            now = time.time()
-            # if now - last_spoken > COOLDOWN:
-            #     last_spoken = now
-            #     threading.Thread(target=speak, args=("Put down your damn phone.",), daemon=True).start()
+            
+            if(model.names[cls] == "cat" or cv2.waitKey(1) == ord('e')) and not started:
+                started = True
+                subprocess.Popen([sys.executable, '/home/nico/Programming/project_cat/main.py'])
 
         if args.no_gui:
             pass
