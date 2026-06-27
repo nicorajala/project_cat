@@ -21,6 +21,9 @@ PHASES = [
 ]
 TRANSITION_DURATION = 8
 
+import os
+os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
+
 cap = cv2.VideoCapture("http://192.168.1.59:5000/video")
 cap.set(3, 320)
 cap.set(4, 240)
@@ -80,8 +83,13 @@ chords_by_position = ["C", "Am", "F", "G"]
 def main():
     global last_note_time, lead_note_time, lead_phrase_duration
     cooldown = 0.5
+
+    music.mix_start_time = time.time()
+    music.startOutputStream()
     while True:
         ret, img = cap.read()
+        if not ret or img is None:
+            continue
         white_mask = getWhiteMask(img)
         orange_mask = getOrangeMask(img)
 
@@ -108,7 +116,15 @@ def main():
                 notes, final_note, note_dur = lead.nextPhrase()
                 music.playLeadPhraseAsync(notes, final_note, note_dur, pan=0.0, volume=1.0)
                 phrase_length = note_dur * len(notes) + (1.0 if note_dur < 0.15 else 1.8)
-                rest = random.uniform(0.3, 1.5)
+
+                roll = random.random()
+                if roll < 0.2:
+                    rest = 0.2
+                elif roll < 0.6:
+                    rest = random.uniform(0.4, 0.8)
+                else:
+                    rest = random.uniform(1, 2.0)
+
                 lead_phrase_duration = now + phrase_length + rest
 
         if now - last_note_time < cooldown:
@@ -124,13 +140,13 @@ def main():
         if phase == "build":
             if white_blob:
                 cx, cy, area = white_blob
-                chord_name = chords_by_position[int(cx / 320 * len(chords_by_position))]
+                chord_name = chords_by_position[min(int(cx / 320 * len(chords_by_position)), len(chords_by_position) - 1)]
                 chord = music.chords[chord_name]
                 music.playArpeggioAsync(chord, pan=-0.8, volume=params["volume_mult"])
                 played = True
             if orange_blob:
                 cx, cy, area = orange_blob
-                chord_name = chords_by_position[int(cx / 320 * len(chords_by_position))]
+                chord_name = chords_by_position[min(int(cx / 320 * len(chords_by_position)), len(chords_by_position) - 1)]
                 chord = music.chords[chord_name]
                 music.playArpeggioAsync(chord, pan=0.8, volume=params["volume_mult"])
                 played = True
