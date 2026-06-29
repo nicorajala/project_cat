@@ -337,7 +337,7 @@ class LeadVoice:
             slow_weight = max(1, int((1 - self.tension) * 4))
             character = random.choices(
                 ["fast_run", "slow_melodic", "short_lick", "chromatic_run", "extended"],
-                weights=[fast_weight, slow_weight, 2, 1, 2]
+                weights=[fast_weight, slow_weight + 3, 2, 1, 2]
             )[0]
 
             if character == "fast_run":
@@ -361,12 +361,18 @@ class LeadVoice:
 
             elif character == "slow_melodic":
                 indices = self._apply_variation(current_motif)
+
+                # sometimes double the motif for a longer phrase
+                if random.random() < 0.4:
+                    indices = indices + self._apply_variation(current_motif)
+
                 octave_shift = random.choice([0, 0, 7])
                 indices = [min(len(self.scale)-1, i + octave_shift) for i in indices]
                 notes = [self.scale[i] for i in indices[:-1]]
                 final_note = self.scale[indices[-1]]
                 self.last_note_idx = indices[-1]
-                return notes, final_note, 0.22
+                note_speed = random.choice([0.25, 0.35, 0.45])
+                return notes, final_note, note_speed
 
             elif character == "short_lick":
                 start_idx = max(0, min(len(self.scale)-4, self.last_note_idx + random.randint(-1, 1)))

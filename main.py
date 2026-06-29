@@ -118,10 +118,8 @@ def main():
                 phrase_length = note_dur * len(notes) + (1.0 if note_dur < 0.15 else 1.8)
 
                 roll = random.random()
-                if roll < 0.2:
-                    rest = 0.2
-                elif roll < 0.6:
-                    rest = random.uniform(0.4, 0.8)
+                if roll < 0.7:
+                    rest = 0
                 else:
                     rest = random.uniform(1, 2.0)
 
