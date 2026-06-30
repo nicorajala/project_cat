@@ -14,10 +14,10 @@ lead_note_time = 0
 lead_phrase_duration = 0
 
 PHASES = [
-    ("intro",  0,   30,  {"cooldown": 0.0, "volume_mult": 0.4}),
-    ("verse",  30,  90,  {"cooldown": 0.0, "volume_mult": 0.5}),
-    ("build",  90,  120, {"cooldown": 0.0, "volume_mult": 0.8}),
-    ("outro",  120, 150, {"cooldown": 1.5, "volume_mult": 0.3}),
+    ("intro",  0,   20,  {"cooldown": 0.0, "volume_mult": 0.2}),
+    ("verse",  20,  80,  {"cooldown": 0.0, "volume_mult": 0.4}),
+    ("build",  80,  120, {"cooldown": 0.0, "volume_mult": 0.8}),
+    ("outro",  120, 150, {"cooldown": 1.5, "volume_mult": 0.1}),
 ]
 TRANSITION_DURATION = 8
 
@@ -84,6 +84,19 @@ def main():
     global last_note_time, lead_note_time, lead_phrase_duration
     cooldown = 0.5
 
+    last_left_chord = None
+    last_right_chord = None
+    last_left_note = None
+    last_right_note = None
+
+    left_chord_until = 0
+    right_chord_until = 0
+    left_note_until = 0
+    right_note_until = 0
+
+    left_chord = "C"
+    right_chord = "C"
+
     music.mix_start_time = time.time()
     music.startOutputStream()
     while True:
@@ -97,11 +110,22 @@ def main():
         colored_mask[white_mask > 0] = [255, 255, 255]
         colored_mask[orange_mask > 0] = [0, 165, 255] 
 
+        white_blob = getBlobInfo(white_mask)
+        orange_blob = getBlobInfo(orange_mask)
+        if white_blob:
+            cx, cy, area = white_blob
+            left_chord = chords_by_position[min(int(cx / 320 * len(chords_by_position)), len(chords_by_position) - 1)]
+        elif orange_blob:
+            cx, cy, area = orange_blob
+            right_chord = chords_by_position[min(int(cx / 320 * len(chords_by_position)), len(chords_by_position) - 1)]
+
         elapsed = time.time() - song_start
         now = time.time()
         phase, params = getPhaseAndParams(elapsed)
 
         cv2.putText(colored_mask, phase.upper(), (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+        cv2.putText(colored_mask, music.LeadVoice.lead_style.upper(), (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+        cv2.putText(colored_mask, "L: " + left_chord.upper() + " R: " + right_chord.upper(), (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
         cv2.imshow('Dis shit (real)', colored_mask)
         if cv2.waitKey(1) == ord('q'):
             break
@@ -113,8 +137,8 @@ def main():
 
         if phase in ("verse", "build"):
             if now > lead_phrase_duration:
-                notes, final_note, note_dur = lead.nextPhrase()
-                music.playLeadPhraseAsync(notes, final_note, note_dur, pan=0.0, volume=1.0)
+                notes, final_note, note_dur = lead.nextPhrase(left_chord)
+                music.playLeadPhraseAsync(notes, final_note, note_dur, pan=0.0, volume=1.5)
                 phrase_length = note_dur * len(notes) + (1.0 if note_dur < 0.15 else 1.8)
 
                 roll = random.random()
@@ -132,34 +156,65 @@ def main():
         duration = 0.5 if random.random() > 0.2 else 1.0
         played = False
 
-        white_blob = getBlobInfo(white_mask)
-        orange_blob = getBlobInfo(orange_mask)
-
         if phase == "build":
             if white_blob:
                 cx, cy, area = white_blob
-                chord_name = chords_by_position[min(int(cx / 320 * len(chords_by_position)), len(chords_by_position) - 1)]
-                chord = music.chords[chord_name]
-                music.playArpeggioAsync(chord, pan=-0.8, volume=params["volume_mult"])
+                chord = music.chords[left_chord]
+
+                if left_chord != last_left_chord or now > left_chord_until:
+                    music.playArpeggioAsync(
+                        chord, pan=-0.8,
+                        volume=params["volume_mult"]
+                    )
+                    
+                    last_left_chord = left_chord
+                    left_chord_until = now + 0.65
+
                 played = True
             if orange_blob:
                 cx, cy, area = orange_blob
-                chord_name = chords_by_position[min(int(cx / 320 * len(chords_by_position)), len(chords_by_position) - 1)]
-                chord = music.chords[chord_name]
-                music.playArpeggioAsync(chord, pan=0.8, volume=params["volume_mult"])
+                chord = music.chords[right_chord]
+
+                if right_chord != last_right_chord or now > right_chord_until:
+                    music.playArpeggioAsync(
+                        chord, pan=0.8,
+                        volume=params["volume_mult"]
+                    )
+
+                    last_right_chord = right_chord
+                    right_chord_until = now + 0.65
+
                 played = True
         elif phase == "intro" or phase == "outro":
             if white_blob:
                 cx, cy, area = white_blob
                 note = scale[min(int(cx / 320 * len(scale)), len(scale) - 1)]
                 volume = min(area / 5000, 1.0) * params["volume_mult"]
-                music.playHeldNoteAsync(note, duration=3.0, pan=-0.8, volume=volume)
+
+                if note != last_left_note or now > left_note_until:
+                    music.playHeldNoteAsync(
+                        note, duration=3,
+                        pan=-0.8, volume=volume
+                    )
+
+                    last_left_note = note
+                    left_note_until = now + 2.8
+
                 played = True
             if orange_blob:
                 cx, cy, area = orange_blob
                 note = scale[min(int(cx / 320 * len(scale)), len(scale) - 1)]
                 volume = min(area / 5000, 1.0) * params["volume_mult"]
-                music.playHeldNoteAsync(note, duration=3.0, pan=0.8, volume=volume)
+
+                if note != last_right_note or now > right_note_until:
+                    music.playHeldNoteAsync(
+                        note, duration=3,
+                        pan=0.8, volume=volume
+                    )
+
+                    last_right_note = note
+                    right_note_until = now + 2.8
+
                 played = True
         else:
             if white_blob:

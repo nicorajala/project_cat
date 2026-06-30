@@ -11,11 +11,44 @@ from mutagen.id3 import ID3, TIT2, TPE1, TALB
 from pedalboard import Pedalboard, Reverb, Delay, Chorus, LowpassFilter, HighpassFilter, Resample
 import pedalboard
 
+rhythms = [
+    [1,1,2],
+    [1,2,1],
+    [2,1,1],
+    [1,1,1,3],
+]
+
 chords = {
     "C": [261.63, 329.63, 392.00, 523.25],  # C E G C
     "Am": [220.00, 261.63, 329.63, 440.00], # A C E A
     "F": [174.61, 261.63, 349.23, 523.25],  # F C F C
     "G": [196.00, 246.94, 392.00, 493.88],  # G B G B
+}
+
+scales = {
+    "C": [
+        130.81,146.83,164.81,174.61,196.00,220.00,246.94,
+        261.63,293.66,329.63,349.23,392.00,440.00,493.88,
+        523.25,587.33,659.25,698.46,783.99
+    ],
+
+    "Am": [
+        110.00,123.47,130.81,146.83,164.81,174.61,196.00,
+        220.00,246.94,261.63,293.66,329.63,349.23,392.00,
+        440.00,493.88,523.25,587.33,659.25
+    ],
+
+    "F": [
+        87.31,98.00,110.00,116.54,130.81,146.83,164.81,
+        174.61,196.00,220.00,233.08,261.63,293.66,329.63,
+        349.23,392.00,440.00,466.16,523.25
+    ],
+
+    "G": [
+        98.00,110.00,123.47,130.81,146.83,164.81,185.00,
+        196.00,220.00,246.94,261.63,293.66,329.63,369.99,
+        392.00,440.00,493.88,523.25,587.33
+    ],
 }
 
 active_threads = 0
@@ -64,19 +97,37 @@ def buildBoard(type="bg"):
             LowpassFilter(cutoff_frequency_hz=1500),
             HighpassFilter(cutoff_frequency_hz=500),
             Resample(5000),
-            Reverb(room_size=0.4, damping=0.8, wet_level=0.3),
+            Reverb(room_size=0.6, damping=0.7, wet_level=0.4),
             Delay(delay_seconds=0.3, feedback=0.3, mix=0.3),
+        ])
+    elif type == "held":
+        return Pedalboard([
+            LowpassFilter(cutoff_frequency_hz=900),
+            Resample(4000),
+            Reverb(room_size=0.3, damping=0.8, wet_level=0.3),
+            Delay(delay_seconds=0.6, feedback=0.8, mix=0.4),
         ])
     elif type == "lead":
         return Pedalboard([
             HighpassFilter(cutoff_frequency_hz=200),
             LowpassFilter(cutoff_frequency_hz=2000),
-            Reverb(room_size=0.2, damping=0.9, wet_level=0.3),
+            Resample(6000),
+            Reverb(room_size=0.3, damping=0.8, wet_level=0.3),
+            Delay(delay_seconds=0.3, feedback=0.3, mix=0.3),
+        ])
+    elif type == "arpeggio":
+        return Pedalboard([
+            #LowpassFilter(cutoff_frequency_hz=1500),
+            #HighpassFilter(cutoff_frequency_hz=500),
+            #Resample(5000),
+            #Reverb(room_size=0.05, damping=0.95, wet_level=0.1),
             Delay(delay_seconds=0.3, feedback=0.3, mix=0.3),
         ])
     return Pedalboard()
 
 board = buildBoard("bg")
+held_board = buildBoard("held")
+arpeggio_board = buildBoard("arpeggio")
 lead_board = buildBoard("lead")
 
 pending_audio = []
@@ -112,7 +163,7 @@ def startOutputStream(sample_rate=44100):
     )
     output_stream.start()
 
-def queueAudio(processed, master_vol=0.25):
+def queueAudio(processed, master_vol=0.1):
     with pending_lock:
         pending_audio.append((processed * master_vol, 0))
 
@@ -159,14 +210,16 @@ def playNoteAsync(frequency, duration, pan, volume=1.0, is_lead=False):
 def playHeldNote(frequency, duration=3.0, pan=0.0, volume=1.0, sample_rate=44100):
     try:
         num_samples = int(sample_rate * duration)
-        cycle_samples = int(sample_rate / frequency)
         t = np.arange(num_samples) / sample_rate
         wave = np.sin(2 * np.pi * frequency * t)
+        wave += np.sin(2 * np.pi * frequency * 2 * t) * 0.25
+        wave += np.sin(2 * np.pi * frequency * 0.5 * t) * 0.15
+        wave = wave / np.max(np.abs(wave))
         
-        fade_samples = int(sample_rate * 0.05)
+        fade_samples = int(sample_rate * 0.15)
         envelope = np.ones(num_samples)
-        envelope[:fade_samples] = np.linspace(0, 1, fade_samples)
-        envelope[-fade_samples:] = np.linspace(1, 0, fade_samples)
+        envelope[:fade_samples] = np.linspace(0, 1, fade_samples) ** 2
+        envelope[-fade_samples:] = np.linspace(1, 0, fade_samples) ** 2
         
         wave = wave * envelope * volume
         left = wave * (1 - max(0, pan))
@@ -178,7 +231,7 @@ def playHeldNote(frequency, duration=3.0, pan=0.0, volume=1.0, sample_rate=44100
             right /= max_val
 
         stereo = np.ascontiguousarray(np.column_stack((left, right)).astype(np.float32))
-        processed = board(stereo.T, sample_rate)
+        processed = held_board(stereo.T, sample_rate)
         processed = np.ascontiguousarray(processed.T)
         addToMix(processed, getCurrentSample())
         queueAudio(processed)
@@ -205,7 +258,7 @@ def playArpeggio(chord_notes, pan, volume, sample_rate=44100):
             right[start:end] += wave * (1 + min(0, pan))
 
         stereo = np.ascontiguousarray(np.column_stack((left, right)).astype(np.float32))
-        processed = board(stereo.T, sample_rate)
+        processed = arpeggio_board(stereo.T, sample_rate)
         processed = np.ascontiguousarray(processed.T)
         addToMix(processed, getCurrentSample())
 
@@ -266,7 +319,20 @@ def playLeadPhraseAsync(notes, final_note, note_duration, pan=0.0, volume=0.6):
     threading.Thread(target=playLeadPhrase, args=(notes, final_note, note_duration, pan, volume), daemon=True).start()
 
 class LeadVoice:
+    lead_style = random.choice(["solo", "lyrical"])
+
     def __init__(self):
+        self.current_chord = "C"
+        self.phrase_memory = []
+        self.max_memory = 8
+        self.repeat_chance = 0.25
+
+        self.CHORD_TONES = {
+            "C":  [261.63,329.63,392.00,523.25],
+            "Am": [220.00,261.63,329.63,440.00],
+            "F":  [174.61,261.63,349.23,523.25],
+            "G":  [196.00,246.94,392.00,493.88],
+        }
         self.scale = [
             130.81, 146.83, 164.81, 174.61, 196.00, 220.00, 246.94,
             261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88,
@@ -282,13 +348,22 @@ class LeadVoice:
             [5, 7, 9, 11, 12, 14],
             [9, 8, 9, 11, 9, 7],
         ]
-        self.style = random.choice(["solo"])
-        self.motif_idx = 0
+        self.style = self.lead_style
+        self.scale = scales[self.current_chord]
         self.phrase_count = 0
         self.last_note_idx = 7
         self.tension = 0.0
-        random.shuffle(self.motifs)
+        self.current_contour = "hover"
+        self.contour_left = 0
         print(f"Lead style: {self.style}")
+
+    def setChord(self, chord):
+        if chord != self.current_chord:
+            self.current_chord = chord
+            self.scale = scales[chord]
+
+            # keep the current melodic position if possible
+            self.last_note_idx = min(self.last_note_idx, len(self.scale) - 1)
 
     def _apply_variation(self, motif):
         variation = random.choices(
@@ -311,14 +386,244 @@ class LeadVoice:
             return motif[::2] if len(motif) > 2 else motif
         return motif
 
-    def nextPhrase(self):
+    def resolve(self, note):
+        tones = self.CHORD_TONES[self.current_chord]
+
+        weights = []
+
+        for t in tones:
+            d = abs(t-note)
+            weights.append(1/(d+1))
+
+        return random.choices(tones, weights=weights)[0]
+
+    def getDuration(self) -> float:
+        base = random.choice([0.07,0.08,0.09])
+        pattern = random.choice(rhythms)
+        duration = base
+
+        return duration
+
+    def chordIndices(self, chord):
+        return {
+            "C":  [7, 9, 11, 14],
+            "Am": [5, 7, 9, 12],
+            "F":  [3, 7, 10, 14],
+            "G":  [4, 6, 11, 13],
+        }[chord]
+    
+    def chooseNextIndex(self, current):
+        if self.contour_left <= 0:
+            self.chooseContour()
+
+        self.contour_left -= 1
+        contour_bias = {
+            "rise":     [0,1,2],
+            "fall":     [-2,-1,0],
+            "arch":     [-1,0,1,2],
+            "valley":   [-2,-1,0,1],
+            "hover":    [-1,0,1],
+        }
+        steps = contour_bias[self.current_contour]
+        candidates = []
+
+        for step in steps:
+            idx = current + step
+            if idx < 0 or idx >= len(self.scale):
+                continue
+
+            candidates.append(idx)
+
+        weights = []
+        for idx in candidates:
+            score = self.noteScore(
+                idx,
+                current,
+                self.current_chord
+            )
+
+            if self.current_contour == "rise":
+                score *= 1 + (idx-current)*0.6
+
+            elif self.current_contour == "fall":
+                score *= 1 + (current-idx)*0.6
+
+            elif self.current_contour == "hover":
+                if abs(idx-current)==0:
+                    score *= 2
+
+            weights.append(score)
+
+        return random.choices(
+            candidates,
+            weights=weights
+        )[0]
+
+
+    def noteScore(self, idx, previous, chord):
+        score = 1.0
+
+        jump = abs(idx - previous)
+
+        if jump == 0:
+            score *= 1.5
+        elif jump == 1:
+            score *= 4
+        elif jump == 2:
+            score *= 3
+        elif jump == 3:
+            score *= 2
+        else:
+            score *= 0.5
+
+        chord = self.chordIndices(chord)
+
+        if idx == chord[0]:
+            score *= 10
+
+        elif idx in chord:
+            score *= 6
+        
+        for tone in chord:
+            if abs(idx - tone) == 1:
+                score *= 2.5
+
+        centre = 11
+        score *= max(0.4, 1.8 - abs(idx-centre)/8)
+
+        return score
+    
+    def chooseContour(self):
+        contours = [
+            "rise",
+            "fall",
+            "arch",
+            "valley",
+            "hover",
+        ]
+
+        weights = [2,2,2,2,3]
+        if self.tension > 0.7:
+            weights = [5,1,4,1,1]
+
+        elif self.tension < 0.3:
+            weights = [1,2,1,2,5]
+
+        self.current_contour = random.choices(
+            contours,
+            weights=weights
+        )[0]
+        self.contour_left = random.randint(5,10)
+
+    def rememberPhrase(self, notes, final_note, duration):
+        if len(notes) < 3:
+            return
+
+        phrase = {
+            "notes": notes.copy(),
+            "final": final_note,
+            "duration": duration,
+        }
+
+        self.phrase_memory.append(phrase)
+        if len(self.phrase_memory) > self.max_memory:
+            self.phrase_memory.pop(0)
+
+        if len(notes) >= 4:
+            start = random.randint(
+                0,
+                len(notes)-4
+            )
+
+            self.motifs.append([
+                min(
+                    range(len(self.scale)),
+                    key=lambda i: abs(self.scale[i]-n)
+                )
+                for n in notes[start:start+4]
+            ])
+
+    def recallPhrase(self, chord):
+        if len(self.phrase_memory) < 2:
+            return None
+
+        phrase = random.choice(self.phrase_memory)
+        notes = phrase["notes"].copy()
+        transform = random.choices(
+            [
+                "exact",
+                "fragment",
+                "reverse",
+                "answer",
+                "transpose"
+            ],
+            weights=[2,3,2,2,2]
+        )[0]
+
+        if transform == "fragment":
+            start = random.randint(0, len(notes)-3)
+            end = random.randint(start+2, len(notes))
+            notes = notes[start:end]
+
+        elif transform == "reverse":
+            notes.reverse()
+
+        elif transform == "transpose":
+            shift = random.choice([-2,-1,1,2])
+            new = []
+
+            for n in notes:
+                idx = min(
+                    range(len(self.scale)),
+                    key=lambda i: abs(self.scale[i]-n)
+                )
+                idx = max(
+                    0,
+                    min(len(self.scale)-1, idx+shift)
+                )
+
+                new.append(self.scale[idx])
+            notes = new
+
+        elif transform == "answer":
+            notes = notes[:-1]
+            idx = min(
+                range(len(self.scale)),
+                key=lambda i: abs(
+                    self.scale[i]-notes[-1]
+                )
+            )
+
+            idx = self.chooseNextIndex(idx)
+            notes.append(self.scale[idx])
+
+        final = self.resolve(notes[-1],)
+
+        duration = phrase["duration"]
+        return notes, final, duration
+
+    def nextPhrase(self, chord="C"):
+        self.setChord(chord)
+        self.chooseContour()
+
+        if random.random() < 0.12:
+            return [], self.resolve(self.scale[self.last_note_idx]), 0.2
+
+        if random.random() < 0.28:
+            recalled = self.recallPhrase(chord)
+            if recalled:
+                return recalled
+
         self.phrase_count += 1
         self.tension = min(1.0, self.tension + 0.15)
 
-        if self.phrase_count % random.randint(2, 3) == 0:
-            self.motif_idx = (self.motif_idx + 1) % len(self.motifs)
+        chord_notes = self.chordIndices(chord)
+        current_motif = []
+        idx = random.choice(chord_notes)
 
-        current_motif = self.motifs[self.motif_idx]
+        for _ in range(random.randint(4,7)):
+            idx = self.chooseNextIndex(idx)
+            current_motif.append(idx)
 
         if self.style == "solo":
             # release phrase when tension is high
@@ -329,9 +634,17 @@ class LeadVoice:
                 for _ in range(5):
                     notes.append(self.scale[idx])
                     idx = max(0, idx - random.randint(1, 2))
-                final_note = self.scale[7]  # land on root C
+                final_note = self.resolve(notes[-1])
                 self.last_note_idx = 7
-                return notes, final_note, 0.15
+
+                duration = self.getDuration()
+
+                self.rememberPhrase(
+                    notes,
+                    final_note,
+                    duration
+                )
+                return notes, final_note, duration
 
             fast_weight = max(1, int(self.tension * 4))
             slow_weight = max(1, int((1 - self.tension) * 4))
@@ -347,8 +660,9 @@ class LeadVoice:
                 idx = start_idx
                 for _ in range(run_length):
                     notes.append(self.scale[idx])
-                    step = random.choices([1, 2, 1, 1, 3], weights=[4, 2, 4, 4, 1])[0]
-                    idx = min(len(self.scale) - 1, idx + step)
+                    idx = self.chooseNextIndex(idx)
+                    notes.append(self.scale[idx])
+
                     if idx >= len(self.scale) - 1:
                         break
                 if random.random() < 0.3:
@@ -356,8 +670,16 @@ class LeadVoice:
                         idx = max(0, idx - random.randint(1, 2))
                         notes.append(self.scale[idx])
                 self.last_note_idx = idx
-                final_note = self.scale[current_motif[-1]]
-                return notes, final_note, 0.07
+                final_note = self.resolve(notes[-1])
+
+                duration = self.getDuration()
+
+                self.rememberPhrase(
+                    notes,
+                    final_note,
+                    duration
+                )
+                return notes, final_note, duration
 
             elif character == "slow_melodic":
                 indices = self._apply_variation(current_motif)
@@ -372,6 +694,12 @@ class LeadVoice:
                 final_note = self.scale[indices[-1]]
                 self.last_note_idx = indices[-1]
                 note_speed = random.choice([0.25, 0.35, 0.45])
+            
+                self.rememberPhrase(
+                    notes,
+                    final_note,
+                    note_speed
+                )
                 return notes, final_note, note_speed
 
             elif character == "short_lick":
@@ -395,7 +723,14 @@ class LeadVoice:
                     notes.append(self.scale[idx])
                 self.last_note_idx = max(0, start_idx - 1)
                 final_note = self.scale[self.last_note_idx]
-                return notes, final_note, 0.1
+                duration = self.getDuration()
+
+                self.rememberPhrase(
+                    notes.copy(),
+                    final_note,
+                    duration
+                )
+                return notes, final_note, duration
 
             elif character == "chromatic_run":
                 color_notes = {
@@ -410,8 +745,15 @@ class LeadVoice:
                 notes.append(color * 1.5 if random.random() < 0.5 else self.scale[min(start_idx + 2, len(self.scale)-1)])
                 notes.append(self.scale[min(start_idx + 1, len(self.scale)-1)])
                 self.last_note_idx = min(start_idx + 1, len(self.scale)-1)
-                final_note = self.scale[current_motif[-1]]
-                return notes, final_note, 0.09
+                final_note = self.resolve(notes[-1])
+                duration = self.getDuration()
+
+                self.rememberPhrase(
+                    notes.copy(),
+                    final_note,
+                    duration
+                )
+                return notes, final_note, duration
 
             elif character == "extended":
                 all_notes = []
@@ -438,8 +780,15 @@ class LeadVoice:
                         all_notes.extend([self.scale[min(i, len(self.scale)-1)] for i in indices])
                         idx = min(indices[-1], len(self.scale)-1)
                 self.last_note_idx = idx
-                final_note = self.scale[current_motif[-1]]
-                return all_notes, final_note, 0.09
+                final_note = self.resolve(all_notes[-1])
+                duration = self.getDuration()
+
+                self.rememberPhrase(
+                    all_notes.copy(),
+                    final_note,
+                    duration
+                )
+                return all_notes, final_note, duration
 
         else:
             indices = self._apply_variation(current_motif)
