@@ -241,6 +241,7 @@ def playHeldNote(frequency, duration=3.0, pan=0.0, volume=1.0, sample_rate=44100
 def playHeldNoteAsync(frequency, duration=3.0, pan=0.0, volume=1.0):
     threading.Thread(target=playHeldNote, args=(frequency, duration, pan, volume), daemon=True).start()
 
+# turned out to be some minecrafty thing but imo sounds better maybe?
 def playArpeggio(chord_notes, pan, volume, sample_rate=44100):
     try:
         note_duration = 0.15
